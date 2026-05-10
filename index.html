@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>COCOLAB - PDF Edits</title>
+    <!-- Importación de IBM Plex Mono -->
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        :root {
+            --retro-orange: #ff8c00;
+            --retro-bg: #0d0d0d;
+            --retro-surface: #1a1a1a;
+            --retro-text: #e0e0e0;
+        }
+
+        body { 
+            background-color: var(--retro-bg); 
+            color: var(--retro-text);
+            font-family: 'IBM Plex Mono', monospace;
+            overflow: hidden; 
+            height: 100vh; 
+        }
+
+        .canvas-container { 
+            margin: auto !important; 
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.5);
+            border: 1px solid #333;
+        }
+
+        #pdf-render-container { 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center;
+            padding: 20px; 
+            height: calc(100vh - 64px); 
+            width: 100%;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .tool-btn { 
+            transition: all 0.2s; 
+            border: 1px solid transparent;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 1px;
+        }
+        .tool-btn:hover { border-color: var(--retro-orange); color: var(--retro-orange); }
+        .active-tool { 
+            background-color: var(--retro-orange) !important; 
+            color: black !important; 
+        }
+
+        /* Estilos de navegación de página */
+        .nav-btn {
+            background: var(--retro-surface);
+            border: 1px solid #333;
+            color: var(--retro-orange);
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        .nav-btn:hover:not(:disabled) {
+            border-color: var(--retro-orange);
+            background: #252525;
+        }
+        .nav-btn:disabled {
+            opacity: 0.2;
+            cursor: not-allowed;
+        }
+
+        .page-indicator {
+            background: var(--retro-surface);
+            border: 1px solid #333;
+            padding: 0 12px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            font-size: 10px;
+            font-weight: bold;
+            color: var(--retro-orange);
+            letter-spacing: 1px;
+        }
+
+        .lower-canvas, .upper-canvas { 
+            max-width: 100% !important; 
+            max-height: 100% !important; 
+        }
+        
+        .color-dot { 
+            width: 18px; height: 18px; 
+            border-radius: 2px; 
+            cursor: pointer; 
+            border: 1px solid #000;
+        }
+        .color-dot.active { 
+            outline: 2px solid var(--retro-orange);
+            outline-offset: 2px;
+        }
+
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: var(--retro-bg); }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 0; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--retro-orange); }
+
+        .terminal-border {
+            border: 1px solid #333;
+            background: var(--retro-surface);
+            transition: border-color 0.3s;
+        }
+
+        .drag-over .terminal-border {
+            border-color: var(--retro-orange);
+            box-shadow: inset 0 0 20px rgba(255, 140, 0, 0.1);
+        }
+
+        .retro-glow {
+            text-shadow: 0 0 8px rgba(255, 140, 0, 0.6);
+        }
+
+        #download-btn {
+            border: 1px solid var(--retro-orange);
+            background: transparent;
+            color: var(--retro-orange);
+        }
+        #download-btn:hover {
+            background: var(--retro-orange);
+            color: black;
+            box-shadow: 0 0 15px var(--retro-orange);
+        }
+    </style>
+</head>
+<body id="drop-zone">
+
+<div class="h-screen flex flex-col relative z-10">
+    <!-- Header -->
+    <header class="bg-[#111] border-b border-[#333] p-3 shadow-md h-16 flex items-center">
+        <div class="max-w-full w-full px-4 flex items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+                <div class="text-orange-500">
+                    <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M13 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V9l-7-7zm0 1.5L18.5 9H13V3.5zM6 20V4h5v7h7v9H6z"/></svg>
+                </div>
+                <h1 class="text-sm font-bold tracking-widest text-orange-500 retro-glow uppercase">COCOLAB - PDF EDITS</h1>
+            </div>
+
+            <div id="controls" class="hidden flex items-center gap-4 bg-[#1a1a1a] px-3 py-1 border border-[#333]">
+                <div class="flex items-center gap-2">
+                    <button onclick="setTool('select')" id="btn-select" class="tool-btn px-3 py-1.5" title="Seleccionar">SELECT</button>
+                    <button onclick="setTool('brush')" id="btn-brush" class="tool-btn px-3 py-1.5 active-tool" title="Pincel">DRAW</button>
+                    <div id="color-selector" class="flex items-center gap-2 px-2 border-r border-[#333]">
+                        <div onclick="changeBrushColor('#ff8c00', this)" class="color-dot active" style="background-color: #ff8c00;"></div>
+                        <div onclick="changeBrushColor('#00ff00', this)" class="color-dot" style="background-color: #00ff00;"></div>
+                        <div onclick="changeBrushColor('#ff0000', this)" class="color-dot" style="background-color: #ff0000;"></div>
+                    </div>
+                </div>
+                
+                <button onclick="setTool('text')" id="btn-text" class="tool-btn px-3 py-1.5 text-gray-400" title="Nota">TEXT</button>
+                
+                <div class="w-px h-4 bg-[#333]"></div>
+                <button onclick="deleteSelected()" class="tool-btn px-3 py-1.5 text-red-500 hover:text-red-400" title="Borrar">DEL</button>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <div id="page-controls" class="hidden flex items-center gap-2">
+                    <button onclick="changePage(-1)" class="nav-btn" id="prev-page" title="Página Anterior">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                    </button>
+                    <div class="page-indicator">
+                        <span class="uppercase">PAGE</span>&nbsp;<span id="current-page">1</span>/<span id="total-pages">1</span>
+                    </div>
+                    <button onclick="changePage(1)" class="nav-btn" id="next-page" title="Página Siguiente">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                    </button>
+                </div>
+
+                <input type="file" id="file-upload" accept="application/pdf" class="hidden">
+                <button id="download-btn" class="hidden px-4 py-1.5 text-[10px] font-bold uppercase tracking-widest transition">Export</button>
+            </div>
+        </div>
+    </header>
+
+    <main id="pdf-render-container" class="flex-grow">
+        <div id="welcome-message" class="text-center px-6">
+            <div class="terminal-border p-10 max-w-lg mx-auto border-dashed border-gray-700">
+                <div class="mb-4 text-orange-500 opacity-50 text-xs">SYSTEM STATUS: ONLINE</div>
+                <h2 class="text-xl font-bold text-orange-500 mb-2 tracking-tighter retro-glow">READY FOR INPUT</h2>
+                <p class="text-gray-500 mb-8 text-[11px] leading-relaxed uppercase">Arrastra un archivo o pulsa el botón.</p>
+                <label for="file-upload" class="inline-block bg-transparent border border-orange-500 text-orange-500 px-10 py-3 font-bold cursor-pointer hover:bg-orange-500 hover:text-black transition text-xs tracking-widest">UPLOAD .PDF</label>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- Overlay de carga -->
+<div id="loading-overlay" class="fixed inset-0 bg-black bg-opacity-90 hidden z-[100] flex items-center justify-center">
+    <div class="flex flex-col items-center gap-4">
+        <div class="w-16 h-1 bg-orange-950 overflow-hidden relative">
+            <div class="absolute inset-0 bg-orange-500 animate-[pulse_0.6s_infinite]"></div>
+        </div>
+        <p class="font-bold text-orange-500 text-[10px] tracking-widest uppercase" id="loading-text">LOADING...</p>
+    </div>
+</div>
+
+<script>
+    const pdfjsLib = window['pdfjs-dist/build/pdf'];
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+
+    let canvas;
+    let pdfDoc = null;
+    let currentPageNum = 1;
+    let totalPages = 0;
+    let currentScale = 1;
+    let currentBrushColor = '#ff8c00';
+    
+    const pagesAnnotations = {}; 
+    const pagesBackgrounds = {};
+
+    const fileUpload = document.getElementById('file-upload');
+    const downloadBtn = document.getElementById('download-btn');
+    const controls = document.getElementById('controls');
+    const pageControls = document.getElementById('page-controls');
+    const welcomeMessage = document.getElementById('welcome-message');
+    const loadingOverlay = document.getElementById('loading-overlay');
+    const dropZone = document.getElementById('drop-zone');
+
+    // Escuchador de teclado para borrar objetos (Backspace o Delete)
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'Backspace' || e.key === 'Delete') {
+            // No borrar si se está editando un texto activo
+            if (canvas && canvas.getActiveObject() && !canvas.getActiveObject().isEditing) {
+                deleteSelected();
+            }
+        }
+    });
+
+    // Funcionalidad Drag & Drop
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, preventDefaults, false);
+    });
+
+    function preventDefaults(e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => dropZone.classList.add('drag-over'), false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => dropZone.classList.remove('drag-over'), false);
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        const dt = e.dataTransfer;
+        const file = dt.files[0];
+        handleFile(file);
+    });
+
+    fileUpload.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        handleFile(file);
+    });
+
+    function handleFile(file) {
+        if (file && file.type === 'application/pdf') {
+            showLoading("BOOTING...");
+            const reader = new FileReader();
+            reader.onload = async function() {
+                const typedarray = new Uint8Array(this.result);
+                await initApp(typedarray);
+            };
+            reader.readAsArrayBuffer(file);
+        }
+    }
+
+    function showLoading(text) {
+        document.getElementById('loading-text').textContent = text;
+        loadingOverlay.classList.remove('hidden');
+    }
+
+    async function initApp(data) {
+        try {
+            pdfDoc = await pdfjsLib.getDocument(data).promise;
+            totalPages = pdfDoc.numPages;
+            currentPageNum = 1;
+            document.getElementById('total-pages').textContent = totalPages;
+            welcomeMessage.style.display = 'none';
+            controls.classList.remove('hidden');
+            pageControls.classList.remove('hidden');
+            downloadBtn.classList.remove('hidden');
+            await loadPage(1);
+        } catch (err) {
+            alert("SYS_ERROR: DATA_LOAD_FAILED");
+        } finally {
+            loadingOverlay.classList.add('hidden');
+        }
+    }
+
+    async function loadPage(pageNum, isResize = false) {
+        if (canvas && !isResize) {
+            pagesAnnotations[currentPageNum] = canvas.toJSON();
+        }
+
+        const oldScale = currentScale;
+        currentPageNum = pageNum;
+        document.getElementById('current-page').textContent = pageNum;
+        
+        const page = await pdfDoc.getPage(pageNum);
+        const container = document.getElementById('pdf-render-container');
+        const availableWidth = container.clientWidth - 40;
+        const availableHeight = container.clientHeight - 40;
+        
+        const unscaledViewport = page.getViewport({ scale: 1 });
+        const scaleX = availableWidth / unscaledViewport.width;
+        const scaleY = availableHeight / unscaledViewport.height;
+        
+        currentScale = Math.min(scaleX, scaleY);
+        const viewport = page.getViewport({ scale: currentScale });
+        
+        const resizeFactor = isResize ? (currentScale / oldScale) : 1;
+
+        const tempCanvas = document.createElement('canvas');
+        const context = tempCanvas.getContext('2d');
+        tempCanvas.height = viewport.height;
+        tempCanvas.width = viewport.width;
+
+        await page.render({ canvasContext: context, viewport: viewport }).promise;
+        const bgData = tempCanvas.toDataURL('image/png');
+        
+        pagesBackgrounds[pageNum] = { data: bgData, width: viewport.width, height: viewport.height };
+
+        if (isResize && canvas) {
+            updateCanvasAfterResize(viewport.width, viewport.height, bgData, resizeFactor);
+        } else {
+            setupFabric(viewport.width, viewport.height, bgData, pagesAnnotations[pageNum]);
+        }
+        updateNavButtons();
+    }
+
+    function updateCanvasAfterResize(width, height, bgUrl, factor) {
+        const objects = canvas.getObjects();
+        canvas.setDimensions({ width, height });
+        
+        fabric.Image.fromURL(bgUrl, function(img) {
+            canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas));
+            objects.forEach(obj => {
+                obj.left *= factor;
+                obj.top *= factor;
+                obj.scaleX *= factor;
+                obj.scaleY *= factor;
+                obj.setCoords();
+            });
+            canvas.renderAll();
+        });
+    }
+
+    function setupFabric(width, height, bgUrl, state) {
+        if (canvas) {
+            canvas.dispose();
+            document.getElementById('pdf-render-container').innerHTML = '';
+        }
+
+        const canvasElement = document.createElement('canvas');
+        canvasElement.id = 'active-canvas';
+        document.getElementById('pdf-render-container').appendChild(canvasElement);
+
+        canvas = new fabric.Canvas('active-canvas', {
+            width: width,
+            height: height,
+            preserveObjectStacking: true,
+            backgroundColor: '#000'
+        });
+
+        fabric.Image.fromURL(bgUrl, function(img) {
+            canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas));
+            if (state) {
+                canvas.loadFromJSON(state, () => {
+                    canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas));
+                    canvas.renderAll();
+                });
+            }
+        });
+
+        canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
+        canvas.freeDrawingBrush.color = currentBrushColor;
+        canvas.freeDrawingBrush.width = 3;
+        
+        // Mantener el estado de la herramienta actual tras cambio de página
+        if (document.getElementById('btn-brush').classList.contains('active-tool')) {
+            canvas.isDrawingMode = true;
+        } else if (document.getElementById('btn-select').classList.contains('active-tool')) {
+            canvas.isDrawingMode = false;
+        } else {
+            // Por defecto Draw
+            setTool('brush');
+        }
+    }
+
+    function changeBrushColor(color, element) {
+        currentBrushColor = color;
+        if (canvas) canvas.freeDrawingBrush.color = color;
+        document.querySelectorAll('.color-dot').forEach(dot => dot.classList.remove('active'));
+        element.classList.add('active');
+        // Si estábamos en modo texto o select, al cambiar color solemos querer volver a dibujar
+        if (canvas && !canvas.isDrawingMode && !document.getElementById('btn-select').classList.contains('active-tool')) {
+            setTool('brush');
+        }
+    }
+
+    function setTool(tool) {
+        if(!canvas) return;
+        
+        canvas.isDrawingMode = false;
+        // Habilitar/deshabilitar selección de objetos
+        canvas.selection = (tool === 'select');
+        canvas.forEachObject(obj => {
+            obj.selectable = (tool === 'select');
+            obj.evented = (tool === 'select' || tool === 'text');
+        });
+
+        document.querySelectorAll('#controls .tool-btn').forEach(btn => btn.classList.remove('active-tool'));
+
+        if (tool === 'select') {
+            document.getElementById('btn-select').classList.add('active-tool');
+            canvas.defaultCursor = 'default';
+        } else if (tool === 'brush') {
+            canvas.isDrawingMode = true;
+            document.getElementById('btn-brush').classList.add('active-tool');
+            canvas.freeDrawingBrush.color = currentBrushColor;
+        } else if (tool === 'text') {
+            document.getElementById('btn-text').classList.add('active-tool');
+            const itext = new fabric.IText('> ENTER_TEXT', {
+                left: 100, top: 100, 
+                fontSize: 18, 
+                fill: '#000',
+                fontFamily: 'IBM Plex Mono',
+                backgroundColor: '#ff8c00', 
+                padding: 8
+            });
+            canvas.add(itext);
+            canvas.setActiveObject(itext);
+            // Volvemos a herramienta de selección para poder mover el texto recién creado
+            setTool('select');
+        }
+        canvas.requestRenderAll();
+    }
+
+    function deleteSelected() {
+        if(!canvas) return;
+        const activeObjects = canvas.getActiveObjects();
+        if (activeObjects.length) {
+            canvas.discardActiveObject();
+            activeObjects.forEach(obj => canvas.remove(obj));
+            canvas.requestRenderAll();
+        }
+    }
+
+    function changePage(delta) {
+        const newPage = currentPageNum + delta;
+        if (newPage >= 1 && newPage <= totalPages) {
+            showLoading(`ACCESSING_P_${newPage}...`);
+            setTimeout(() => {
+                loadPage(newPage).then(() => loadingOverlay.classList.add('hidden'));
+            }, 50);
+        }
+    }
+
+    function updateNavButtons() {
+        document.getElementById('prev-page').disabled = (currentPageNum === 1);
+        document.getElementById('next-page').disabled = (currentPageNum === totalPages);
+    }
+
+    downloadBtn.addEventListener('click', async () => {
+        pagesAnnotations[currentPageNum] = canvas.toJSON();
+        showLoading("EXPORTING...");
+        try {
+            const { jsPDF } = window.jspdf;
+            let pdfExport = null;
+            for (let i = 1; i <= totalPages; i++) {
+                const pageData = pagesBackgrounds[i];
+                if (!pageData) continue;
+                
+                const tempExportCanvas = document.createElement('canvas');
+                tempExportCanvas.width = pageData.width;
+                tempExportCanvas.height = pageData.height;
+                const fExport = new fabric.StaticCanvas(tempExportCanvas);
+                
+                await new Promise((resolve) => {
+                    fabric.Image.fromURL(pageData.data, (img) => {
+                        fExport.setBackgroundImage(img, () => {
+                            if (pagesAnnotations[i]) {
+                                fExport.loadFromJSON(pagesAnnotations[i], () => {
+                                    fExport.setBackgroundImage(img, () => {
+                                        fExport.renderAll();
+                                        resolve();
+                                    });
+                                });
+                            } else {
+                                fExport.renderAll();
+                                resolve();
+                            }
+                        });
+                    });
+                });
+                
+                const imgData = fExport.toDataURL({ format: 'jpeg', quality: 0.95 });
+                const orientation = pageData.width > pageData.height ? 'l' : 'p';
+                
+                if (i === 1) {
+                    pdfExport = new jsPDF({ orientation, unit: 'px', format: [pageData.width, pageData.height] });
+                } else {
+                    pdfExport.addPage([pageData.width, pageData.height], orientation);
+                }
+                pdfExport.addImage(imgData, 'JPEG', 0, 0, pageData.width, pageData.height);
+                fExport.dispose();
+            }
+            pdfExport.save('cocolab_edit.pdf');
+        } catch (err) {
+            console.error(err);
+        } finally {
+            loadingOverlay.classList.add('hidden');
+        }
+    });
+
+    let resizeTimer;
+    window.addEventListener('resize', () => {
+        if (pdfDoc && canvas) {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                loadPage(currentPageNum, true);
+            }, 200);
+        }
+    });
+</script>
+
+</body>
+</html>
